@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Create GitHub pre-release'
+        description: 'Publish release for in-app updater'
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,6 +43,11 @@ jobs:
           python-version: '3.11'
       - name: Point Chaquopy at that Python
         run: echo "CHAQUOPY_BUILD_PYTHON=$(which python3.11 || which python)" >> $GITHUB_ENV
+      - name: Cache Permanent APK Signing Key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: spacegram-signing-key-v1
       - name: Set up Ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -57,7 +62,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes nasm
-      - name: Configure SpaceGram & SDK
+      - name: Apply SpaceGram v0.2 Patch
         env:
           SECRET_APP_ID: ${{ secrets.APP_ID }}
           SECRET_APP_HASH: ${{ secrets.APP_HASH }}
@@ -68,7 +73,113 @@ jobs:
 
           find . -maxdepth 4 \( -name "build.gradle*" -o -name "*.kt" -o -name "*.properties" -o -name "google-services.json" \) -exec sed -i 's|com\.exteraless\.app|com.spacegram.messenger|g' {} +
           find TMessagesProj/src/main/res* -name "strings*.xml" -exec sed -i -E 's|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|@SpaceGram([^_])|@SpaceGram_Client\1|g; s|@SpaceGram<|@SpaceGram_Client<|g' {} +
-          find TMessagesProj/src/main/java -type f \( -name "*.java" -o -name "*.kt" \) -exec sed -i 's|https://t\.me/exteraless|https://t.me|g; s|@exteraless|@SpaceGram_Client|g; s|exteraless/exteraless|rowwwex/SpaceGram|g' {} +
+
+          python3 - << 'EOF'
+          import os, re, shutil, glob
+
+          def patch_file(path, fn):
+              if os.path.exists(path):
+                  with open(path, 'r', encoding='utf-8') as f:
+                      txt = f.read()
+                  new_txt = fn(txt)
+                  if new_txt != txt:
+                      with open(path, 'w', encoding='utf-8') as f:
+                          f.write(new_txt)
+                      print("Patched:", path)
+
+          # 1. Заголовок списка чатов и папка загрузок
+          patch_file("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java",
+                     lambda s: s.replace('return "exteraless";', 'return "SpaceGram";'))
+          patch_file("TMessagesProj/src/main/java/com/exteragram/messenger/utils/text/LocaleUtils.java",
+                     lambda s: s.replace('return "exteraless";', 'return "SpaceGram";'))
+          patch_file("TMessagesProj/src/main/java/tw/nekomimi/nekogram/NekoConfig.java",
+                     lambda s: s.replace('"customSavePath", configTypeString, "exteraless"', '"customSavePath", configTypeString, "SpaceGram"'))
+
+          # 2. Ссылки на канал @SpaceGram_Client, GitHub, User-Agent и блок "О моде"
+          def patch_settings(s):
+              s = s.replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
+              s = s.replace('https://github.com', 'https://github.com')
+              s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
+              s = re.sub(r'getString\(R\.string\.[^)]*Design[^)]*\)', '"О моде"', s)
+              s = re.sub(r'"@the8055u"', '"Исходный код: exteraless"', s)
+              s = re.sub(r'"@BlueprintDsgn"', '"Благодарность: Gemini & Claude"', s)
+              s = re.sub(r'openByUserName\("the8055u"[^)]*\)', 'openByUserName("SpaceGram_Client", this, 1)', s)
+              s = re.sub(r'openByUserName\("BlueprintDsgn"[^)]*\)', 'openByUserName("SpaceGram_Client", this, 1)', s)
+              return s
+
+          patch_file("TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java", patch_settings)
+          patch_file("TMessagesProj/src/main/java/app/exteraless/updater/GitHubUpdater.java",
+                     lambda s: s.replace('exteraless/exteraless', 'rowwwex/SpaceGram').replace('"exteraless"', '"SpaceGram"'))
+
+          # 3. Замена 11 иконок на загруженные ic_spacegram_1..11 + сетка 4x4 (16 иконок)
+          res_dir = "TMessagesProj/src/main/res"
+          xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
+          drw_dir = os.path.join(res_dir, "drawable")
+
+          spaced = os.path.join(xxx_dir, "ic_spacegram_ 1.png")
+          fixed1 = os.path.join(xxx_dir, "ic_spacegram_1.png")
+          if os.path.exists(spaced) and not os.path.exists(fixed1):
+              os.rename(spaced, fixed1)
+
+          slots = [
+              ("exteraless", "SpaceGram"),
+              ("blueprint", "Nothing"),
+              ("red", "Cyan Orbit"),
+              ("nya", "Light"),
+              ("ayu", "Emerald"),
+              ("quack", "Sunset"),
+              ("go", "Cyber"),
+              ("hand", "Glitch"),
+              ("mono", "Pixel Classic"),
+              ("nothing", "Pixel Emerald"),
+              ("plus", "BSOD")
+          ]
+
+          for idx, (slot, label) in enumerate(slots, start=1):
+              src_png = os.path.join(xxx_dir, f"ic_spacegram_{idx}.png")
+              if os.path.exists(src_png):
+                  for old in glob.glob(os.path.join(xxx_dir, f"{slot}_icon*")):
+                      os.remove(old)
+                  shutil.copy2(src_png, os.path.join(xxx_dir, f"ic_spacegram_raw_{idx}.png"))
+                  with open(os.path.join(drw_dir, f"{slot}_icon_background.xml"), "w") as f:
+                      f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<bitmap xmlns:android="http://android.com" android:src="@drawable/ic_spacegram_raw_{idx}" android:gravity="fill"/>\n')
+                  with open(os.path.join(drw_dir, f"{slot}_icon_foreground.xml"), "w") as f:
+                      f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<inset xmlns:android="http://android.com" android:drawable="@drawable/ic_spacegram_raw_{idx}" android:inset="16%"/>\n')
+                  patch_file("TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java",
+                             lambda s, sl=slot: s.replace(f'R.drawable.{sl}_icon_background,\n                R.drawable.app_icon_empty_foreground',
+                                                          f'R.drawable.{sl}_icon_background,\n                R.drawable.{sl}_icon_foreground')
+                                                 .replace(f'R.drawable.{sl}_icon_background, R.drawable.app_icon_empty_foreground',
+                                                          f'R.drawable.{sl}_icon_background, R.drawable.{sl}_icon_foreground'))
+
+          str_files = [
+              "TMessagesProj/src/main/res/values/strings_oe.xml",
+              "TMessagesProj/src/main/res/values-ru-rRU/strings_oe.xml"
+          ]
+          icon_keys = [
+              ("AppIconExteraless", "SpaceGram"),
+              ("AppIconBlueprint", "Nothing"),
+              ("AppIconRed", "Cyan Orbit"),
+              ("AppIconNya", "Light"),
+              ("AppIconAyu", "Emerald"),
+              ("AppIconQuack", "Sunset"),
+              ("AppIconGo", "Cyber"),
+              ("AppIconHand", "Glitch"),
+              ("AppIconMono", "Pixel"),
+              ("AppIconNothing", "Emerald 8-bit"),
+              ("AppIconPlus", "BSOD")
+          ]
+          for sf in str_files:
+              def upd_str(s):
+                  for k, v in icon_keys:
+                      s = re.sub(rf'(<string name="{k}"[^>]*>)[^<]*(</string>)', rf'\g<1>{v}\g<2>', s)
+                  return s
+              patch_file(sf, upd_str)
+
+          patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIcons.java",
+                     lambda s: s.replace("LauncherIcon.values()", "java.util.Arrays.stream(LauncherIcon.values()).filter(i -> i != LauncherIcon.VINTAGE).toArray(LauncherIcon[]::new)"))
+          patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIconsActivity.java",
+                     lambda s: re.sub(r'spanCount\s*=\s*\d+', 'spanCount = 4', s))
+          EOF
 
       - name: Modify Gradle JVM Args
         run: |
@@ -96,16 +207,18 @@ jobs:
       - name: Upload arm64-v8a Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SpaceGram-v0.1
+          name: SpaceGram-v0.2
           path: |
             TMessagesProj/build/outputs/apk/release/*.apk
-      - name: Publish GitHub pre-release
+      - name: Publish GitHub Release
         if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHORT=$(echo "$GITHUB_SHA" | cut -c1-7)
-          TAG="ci-$SHORT"
-          gh release create "$TAG" TMessagesProj/build/outputs/apk/release/*.apk \
-            --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title "SpaceGram CI $SHORT" --notes "SpaceGram build $SHORT"
+          TAG="build-$SHORT"
+          APK_FILE=$(ls TMessagesProj/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK_FILE" "SpaceGram-arm64-$SHORT.apk"
+          gh release create "$TAG" "SpaceGram-arm64-$SHORT.apk" \
+            --target "$GITHUB_SHA" --latest \
+            --title "SpaceGram ($SHORT)" --notes "SpaceGram update $SHORT"
