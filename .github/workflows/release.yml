@@ -61,7 +61,8 @@ jobs:
       - name: Install Native Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes nasm python3-pil
+          sudo apt-get install --no-install-recommends --yes nasm
+          python3 -m pip install --quiet pillow
       - name: Apply SpaceGram v0.2 Patch
         env:
           SECRET_APP_ID: ${{ secrets.APP_ID }}
