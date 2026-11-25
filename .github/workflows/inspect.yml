@@ -1,0 +1,21 @@
+name: Inspect SpaceGram Files
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find Icons, Prefs & Strings
+        run: |
+          echo "=== LAUNCHER ICON FILES ==="
+          find TMessagesProj/src/main/java -iname "*launcher*icon*" -o -iname "*icon*selector*"
+          ICON_FILE=$(find TMessagesProj/src/main/java -iname "*launcher*icon*" | head -n 1)
+          test -n "$ICON_FILE" && cat "$ICON_FILE" || true
+          echo "=== PREFERENCES FILE ==="
+          PREF=$(find TMessagesProj/src/main/java -iname "*extera*pref*.java" | head -n 1)
+          test -n "$PREF" && cat "$PREF" || true
+          echo "=== REMAINING EXTERALESS REFS ==="
+          grep -rn -i "exteraless" TMessagesProj/src/main/java/ TMessagesProj/src/main/res/values*/ || true
