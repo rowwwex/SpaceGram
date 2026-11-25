@@ -75,7 +75,8 @@ jobs:
           find TMessagesProj/src/main/res* -name "strings*.xml" -exec sed -i -E 's|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|@SpaceGram([^_])|@SpaceGram_Client\1|g; s|@SpaceGram<|@SpaceGram_Client<|g' {} +
 
           python3 - << 'EOF'
-          import os, re, shutil, glob
+          import os, re, glob
+          from PIL import Image
 
           def patch_file(path, fn):
               if os.path.exists(path):
@@ -111,10 +112,9 @@ jobs:
           patch_file("TMessagesProj/src/main/java/app/exteraless/updater/GitHubUpdater.java",
                      lambda s: s.replace('exteraless/exteraless', 'rowwwex/SpaceGram').replace('"exteraless"', '"SpaceGram"'))
 
-          # 3. Замена 11 иконок на загруженные ic_spacegram_1..11 + сетка 4x4 (16 иконок)
+          # 3. Замена 11 иконок во всех папках drawable* + чистые PNG
           res_dir = "TMessagesProj/src/main/res"
           xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
-          drw_dir = os.path.join(res_dir, "drawable")
 
           spaced = os.path.join(xxx_dir, "ic_spacegram_ 1.png")
           fixed1 = os.path.join(xxx_dir, "ic_spacegram_1.png")
@@ -138,18 +138,27 @@ jobs:
           for idx, (slot, label) in enumerate(slots, start=1):
               src_png = os.path.join(xxx_dir, f"ic_spacegram_{idx}.png")
               if os.path.exists(src_png):
-                  for old in glob.glob(os.path.join(xxx_dir, f"{slot}_icon*")):
+                  img = Image.open(src_png).convert("RGBA").resize((512, 512), Image.LANCZOS)
+                  for old in glob.glob(os.path.join(res_dir, "drawable*", f"{slot}_icon_background*")) + glob.glob(os.path.join(res_dir, "drawable*", f"{slot}_icon_foreground*")):
                       os.remove(old)
-                  shutil.copy2(src_png, os.path.join(xxx_dir, f"ic_spacegram_raw_{idx}.png"))
-                  with open(os.path.join(drw_dir, f"{slot}_icon_background.xml"), "w") as f:
-                      f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<bitmap xmlns:android="http://android.com" android:src="@drawable/ic_spacegram_raw_{idx}" android:gravity="fill"/>\n')
-                  with open(os.path.join(drw_dir, f"{slot}_icon_foreground.xml"), "w") as f:
-                      f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<inset xmlns:android="http://android.com" android:drawable="@drawable/ic_spacegram_raw_{idx}" android:inset="16%"/>\n')
+                  if slot == "exteraless":
+                      for old_logo in glob.glob(os.path.join(res_dir, "drawable*", "exteraless_icon.*")):
+                          os.remove(old_logo)
+                      img.save(os.path.join(xxx_dir, "exteraless_icon.png"), "PNG")
+                  img.save(os.path.join(xxx_dir, f"{slot}_icon_background.png"), "PNG")
+                  fg = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+                  inner = img.resize((348, 348), Image.LANCZOS)
+                  fg.paste(inner, (82, 82), inner)
+                  fg.save(os.path.join(xxx_dir, f"{slot}_icon_foreground.png"), "PNG")
+
                   patch_file("TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java",
                              lambda s, sl=slot: s.replace(f'R.drawable.{sl}_icon_background,\n                R.drawable.app_icon_empty_foreground',
                                                           f'R.drawable.{sl}_icon_background,\n                R.drawable.{sl}_icon_foreground')
                                                  .replace(f'R.drawable.{sl}_icon_background, R.drawable.app_icon_empty_foreground',
                                                           f'R.drawable.{sl}_icon_background, R.drawable.{sl}_icon_foreground'))
+
+          for old_raw in glob.glob(os.path.join(xxx_dir, "ic_spacegram_*.png")):
+              os.remove(old_raw)
 
           str_files = [
               "TMessagesProj/src/main/res/values/strings_oe.xml",
