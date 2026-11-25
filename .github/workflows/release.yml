@@ -67,7 +67,7 @@ jobs:
           printf "sdk.dir=%s\nTELEGRAM_APP_ID=%s\nTELEGRAM_APP_HASH=%s\n" "$ANDROID_HOME" "$app_id" "$app_hash" > local.properties
 
           find . -maxdepth 4 \( -name "build.gradle*" -o -name "*.kt" -o -name "*.properties" -o -name "google-services.json" \) -exec sed -i 's|com\.exteraless\.app|com.spacegram.messenger|g' {} +
-          find TMessagesProj/src/main/res* -name "*.xml" -exec sed -i 's|exteraless|SpaceGram|g; s|Exteraless|SpaceGram|g; s|@SpaceGram|@SpaceGram_Client|g' {} +
+          find TMessagesProj/src/main/res* -name "strings*.xml" -exec sed -i -E 's|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|@SpaceGram([^_])|@SpaceGram_Client\1|g; s|@SpaceGram<|@SpaceGram_Client<|g' {} +
           find TMessagesProj/src/main/java -type f \( -name "*.java" -o -name "*.kt" \) -exec sed -i 's|https://t\.me/exteraless|https://t.me|g; s|@exteraless|@SpaceGram_Client|g; s|exteraless/exteraless|rowwwex/SpaceGram|g' {} +
 
       - name: Modify Gradle JVM Args
