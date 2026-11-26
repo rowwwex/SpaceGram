@@ -89,7 +89,7 @@ jobs:
                           f.write(new_txt)
                       print("Patched:", path)
 
-          # 1. Заголовок чатов, превью в Оформлении и GitHub в настройках
+          # 1. Заголовок чатов, превью в Оформлении (TypefaceHelper) и GitHub/канал в остальных файлах
           for root, _, files in os.walk("TMessagesProj/src/main/java"):
               for fn in files:
                   if fn.endswith((".java", ".kt")) and fn != "OpenExteraSettingsActivity.java":
@@ -99,143 +99,149 @@ jobs:
                                                .replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
                                                .replace('"@exteraless"', '"@SpaceGram_Client"'))
 
-          # 2. Создаём отдельный экран "О форке" (ForkInfoActivity.java)
+          patch_file("TMessagesProj/src/main/java/tw/nekomimi/nekogram/helpers/TypefaceHelper.java",
+                     lambda s: re.sub(r'\bexteraless\b', 'SpaceGram', s))
+
+          # 2. Создаём экран "О форке" на базе BaseNekoSettingsActivity (скруглённые карточки как в настройках)
           fork_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/ForkInfoActivity.java"
           with open(fork_activity_path, "w", encoding="utf-8") as f:
               f.write('''package app.exteraless.settings;
 
           import android.content.Context;
           import android.view.View;
-          import android.view.ViewGroup;
-          import android.widget.FrameLayout;
-          import androidx.annotation.NonNull;
-          import androidx.recyclerview.widget.LinearLayoutManager;
           import androidx.recyclerview.widget.RecyclerView;
           import org.telegram.messenger.R;
           import org.telegram.messenger.browser.Browser;
-          import org.telegram.ui.ActionBar.ActionBar;
-          import org.telegram.ui.ActionBar.BaseFragment;
-          import org.telegram.ui.ActionBar.Theme;
-          import org.telegram.ui.Cells.HeaderCell;
-          import org.telegram.ui.Cells.ShadowSectionCell;
-          import org.telegram.ui.Cells.TextSettingsCell;
-          import org.telegram.ui.Components.LayoutHelper;
-          import org.telegram.ui.Components.RecyclerListView;
+          import org.telegram.ui.Cells.TextCell;
+          import tw.nekomimi.nekogram.settings.BaseNekoSettingsActivity;
+          import tw.nekomimi.nekogram.ui.cells.HeaderCell;
 
-          public class ForkInfoActivity extends BaseFragment {
+          public class ForkInfoActivity extends BaseNekoSettingsActivity {
+              private int baseHeaderRow;
+              private int exteralessRow;
+              private int baseDividerRow;
+
+              private int thanksHeaderRow;
+              private int geminiRow;
+              private int claudeRow;
+              private int chatgptRow;
+              private int thanksDividerRow;
+
               @Override
-              public View createView(Context context) {
-                  actionBar.setBackButtonImage(R.drawable.ic_ab_back);
-                  actionBar.setAllowOverlayTitle(true);
-                  actionBar.setTitle("О форке");
-                  actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
-                      @Override
-                      public void onItemClick(int id) {
-                          if (id == -1) finishFragment();
-                      }
-                  });
+              protected void updateRows() {
+                  super.updateRows();
+                  baseHeaderRow = addRow("baseHeader");
+                  exteralessRow = addRow("exteraless");
+                  baseDividerRow = addRow();
 
-                  fragmentView = new FrameLayout(context);
-                  FrameLayout frameLayout = (FrameLayout) fragmentView;
-                  frameLayout.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
-
-                  RecyclerListView listView = new RecyclerListView(context);
-                  listView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false));
-                  listView.setVerticalScrollBarEnabled(false);
-                  listView.setAdapter(new ListAdapter(context));
-                  frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-
-                  listView.setOnItemClickListener((view, position) -> {
-                      if (position == 1) {
-                          Browser.openUrl(getParentActivity(), "https://github.com");
-                      } else if (position == 4) {
-                          Browser.openUrl(getParentActivity(), "https://google.com");
-                      } else if (position == 5) {
-                          Browser.openUrl(getParentActivity(), "https://claude.ai");
-                      } else if (position == 6) {
-                          Browser.openUrl(getParentActivity(), "https://chatgpt.com");
-                      }
-                  });
-
-                  return fragmentView;
+                  thanksHeaderRow = addRow("thanksHeader");
+                  geminiRow = addRow("gemini");
+                  claudeRow = addRow("claude");
+                  chatgptRow = addRow("chatgpt");
+                  thanksDividerRow = addRow();
               }
 
-              private static class ListAdapter extends RecyclerListView.SelectionAdapter {
-                  private final Context mContext;
-                  ListAdapter(Context context) { mContext = context; }
+              @Override
+              protected String getActionBarTitle() {
+                  return "О форке";
+              }
+
+              @Override
+              protected String getKey() {
+                  return "spacegram_fork_info";
+              }
+
+              @Override
+              protected BaseListAdapter createAdapter(Context context) {
+                  return new ListAdapter(context);
+              }
+
+              @Override
+              protected void onItemClick(View view, int position, float x, float y) {
+                  if (position == exteralessRow) {
+                      Browser.openUrl(getParentActivity(), "https://github.com" + "exteraless" + "/" + "exteraless");
+                  } else if (position == geminiRow) {
+                      Browser.openUrl(getParentActivity(), "https://google.com");
+                  } else if (position == claudeRow) {
+                      Browser.openUrl(getParentActivity(), "https://claude.ai");
+                  } else if (position == chatgptRow) {
+                      Browser.openUrl(getParentActivity(), "https://chatgpt.com");
+                  }
+              }
+
+              private class ListAdapter extends BaseListAdapter {
+                  public ListAdapter(Context context) {
+                      super(context);
+                  }
 
                   @Override
-                  public int getItemCount() { return 8; }
+                  public void onBindViewHolder(RecyclerView.ViewHolder holder, int position, boolean partial) {
+                      switch (holder.getItemViewType()) {
+                          case TYPE_HEADER: {
+                              HeaderCell cell = (HeaderCell) holder.itemView;
+                              if (position == baseHeaderRow) {
+                                  cell.setText("Основа клиента");
+                              } else if (position == thanksHeaderRow) {
+                                  cell.setText("Благодарности");
+                              }
+                              break;
+                          }
+                          case TYPE_TEXT: {
+                              TextCell cell = (TextCell) holder.itemView;
+                              if (position == exteralessRow) {
+                                  cell.setTextAndValueAndIcon("exteraless", "GitHub", R.drawable.msg_language, false);
+                              } else if (position == geminiRow) {
+                                  cell.setTextAndValueAndIcon("Gemini", "Google AI", R.drawable.msg_bot, true);
+                              } else if (position == claudeRow) {
+                                  cell.setTextAndValueAndIcon("Claude", "Anthropic", R.drawable.msg_bot, true);
+                              } else if (position == chatgptRow) {
+                                  cell.setTextAndValueAndIcon("ChatGPT", "OpenAI", R.drawable.msg_bot, false);
+                              }
+                              cell.setImageLeft(21);
+                              cell.setOffsetFromImage(71);
+                              break;
+                          }
+                      }
+                  }
 
                   @Override
                   public boolean isEnabled(RecyclerView.ViewHolder holder) {
-                      int pos = holder.getAdapterPosition();
-                      return pos == 1 || pos == 4 || pos == 5 || pos == 6;
-                  }
-
-                  @NonNull
-                  @Override
-                  public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                      View view;
-                      if (viewType == 0) {
-                          view = new HeaderCell(mContext);
-                          view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-                      } else if (viewType == 1) {
-                          view = new TextSettingsCell(mContext);
-                          view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-                      } else {
-                          view = new ShadowSectionCell(mContext);
-                      }
-                      return new RecyclerListView.Holder(view);
-                  }
-
-                  @Override
-                  public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
-                      if (holder.getItemViewType() == 0) {
-                          HeaderCell cell = (HeaderCell) holder.itemView;
-                          if (position == 0) cell.setText("Основа клиента");
-                          else if (position == 3) cell.setText("Благодарности");
-                      } else if (holder.getItemViewType() == 1) {
-                          TextSettingsCell cell = (TextSettingsCell) holder.itemView;
-                          if (position == 1) cell.setTextAndValue("exteraless", "GitHub", false);
-                          else if (position == 4) cell.setTextAndValue("Gemini", "Google AI", true);
-                          else if (position == 5) cell.setTextAndValue("Claude", "Anthropic", true);
-                          else if (position == 6) cell.setTextAndValue("ChatGPT", "OpenAI", false);
-                      }
+                      return holder.getItemViewType() == TYPE_TEXT;
                   }
 
                   @Override
                   public int getItemViewType(int position) {
-                      if (position == 0 || position == 3) return 0;
-                      if (position == 2 || position == 7) return 2;
-                      return 1;
+                      if (position == baseHeaderRow || position == thanksHeaderRow) {
+                          return TYPE_HEADER;
+                      } else if (position == baseDividerRow || position == thanksDividerRow) {
+                          return TYPE_SHADOW;
+                      }
+                      return TYPE_TEXT;
                   }
               }
           }
           ''')
 
-          # 3. Точечно обновляем OpenExteraSettingsActivity.java по известным строкам
+          # 3. Точечно обновляем OpenExteraSettingsActivity.java (убираем designStudioRow и ставим правильные ссылки)
           def patch_settings(s):
               s = s.replace('getMessagesController().openByUserName("exteraless", this, 1);',
                             'getMessagesController().openByUserName("SpaceGram_Client", this, 1);')
               s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
               s = s.replace('"https://github.com"',
                             '"https://github.com"')
-              # Убираем вторую дизайнерскую строку (designStudioRow) и превращаем первую в кнопку "О форке"
-              s = s.replace('designStudioRow = addRow("designStudio");', '')
+              # Полностью вырезаем вторую строку дизайна (designStudioRow) из всех мест класса
+              s = "\n".join(line for line in s.splitlines() if "designStudioRow" not in line and "BlueprintDsgn" not in line)
               s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
                             'presentFragment(new ForkInfoActivity());')
               s = s.replace('cell.setText(getString(R.string.OpenExteraDesignSection));',
                             'cell.setText("О моде");')
               s = s.replace('cell.setTextAndValueAndIcon(getString(R.string.OpenExteraDesigner),\n                                "@the8055u", R.drawable.msg_theme, true);',
                             'cell.setTextAndIcon("О форке", R.drawable.msg_info, false);')
-              s = s.replace('cell.setTextAndValueAndIcon(getString(R.string.OpenExteraDesigner),\n                        "@the8055u", R.drawable.msg_theme, true);',
-                            'cell.setTextAndIcon("О форке", R.drawable.msg_info, false);')
               return s
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java", patch_settings)
 
-          # 4. Иконки без двойного контура + точные подписи + сетка 4x4 (16 штук)
+          # 4. Иконки + названия + сетка 4x4
           res_dir = "TMessagesProj/src/main/res"
           xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
 
@@ -333,7 +339,7 @@ jobs:
         run: |
           export BUILD_TIMESTAMP=$(date +%s)
           echo "build_timestamp=$BUILD_TIMESTAMP" >> "$GITHUB_OUTPUT"
-          ./gradlew TMessagesProj:assembleRelease -x uploadCrashlyticsMappingFileRelease
+          ./gradlew TMessagesProj:assembleRelease -x uploadCrashlyticsMappingFileRelease -PBUILD_COMMIT_ID="$COMMIT_ID" -PBUILD_TIMESTAMP="$BUILD_TIMESTAMP"
       - name: Upload arm64-v8a Artifact
         uses: actions/upload-artifact@v7
         with:
@@ -346,9 +352,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHORT=$(echo "$GITHUB_SHA" | cut -c1-7)
-          TAG="build-$SHORT"
+          TAG="ci-$SHORT"
           APK_FILE=$(ls TMessagesProj/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$APK_FILE" "SpaceGram-arm64-$SHORT.apk"
-          gh release create "$TAG" "SpaceGram-arm64-$SHORT.apk" \
+          cp "$APK_FILE" "SpaceGram-arm64-v8a-$SHORT.apk"
+          gh release create "$TAG" "SpaceGram-arm64-v8a-$SHORT.apk" \
             --target "$GITHUB_SHA" --latest \
             --title "SpaceGram ($SHORT)" --notes "SpaceGram v0.3 update $SHORT"
