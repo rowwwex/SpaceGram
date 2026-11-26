@@ -1,4 +1,4 @@
-name: Inspect Updater & Header
+name: Inspect Themes & Fonts
 
 on:
   workflow_dispatch:
@@ -8,13 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Read Updater, Header & AboutCell
+      - name: Check Themes & Fonts
         run: |
-          echo "=== AboutHeaderCell.java ==="
-          cat TMessagesProj/src/main/java/app/exteraless/settings/AboutHeaderCell.java
-          echo "=== GitHubUpdater.java ==="
-          cat TMessagesProj/src/main/java/app/exteraless/updater/GitHubUpdater.java
-          echo "=== ChatListPreviewCell.java ==="
-          cat TMessagesProj/src/main/java/app/exteraless/appearance/ChatListPreviewCell.java
-          echo "=== DialogsActivity titleText ==="
-          grep -rn -C 15 "titleText" TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java || true
+          echo "=== ASSETS ==="
+          find TMessagesProj/src/main/assets -maxdepth 3 || true
+          echo "=== TYPEFACE HELPER ==="
+          cat TMessagesProj/src/main/java/tw/nekomimi/nekogram/helpers/TypefaceHelper.java
+          echo "=== BUILTIN THEMES IN Theme.java ==="
+          grep -rn -C 15 "attheme" TMessagesProj/src/main/java/org/telegram/ui/ActionBar/Theme.java | head -n 60 || true
