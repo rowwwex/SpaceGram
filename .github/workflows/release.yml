@@ -229,8 +229,7 @@ jobs:
               s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
               s = s.replace('"https://github.com"',
                             '"https://github.com"')
-              # Полностью вырезаем вторую строку дизайна (designStudioRow) из всех мест класса
-              s = "\n".join(line for line in s.splitlines() if "designStudioRow" not in line and "BlueprintDsgn" not in line)
+              s = s.replace('designStudioRow = addRow("designStudio");', 'designStudioRow = -1;')
               s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
                             'presentFragment(new ForkInfoActivity());')
               s = s.replace('cell.setText(getString(R.string.OpenExteraDesignSection));',
@@ -240,7 +239,6 @@ jobs:
               return s
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java", patch_settings)
-
           # 4. Иконки + названия + сетка 4x4
           res_dir = "TMessagesProj/src/main/res"
           xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
