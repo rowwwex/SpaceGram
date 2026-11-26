@@ -63,7 +63,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes nasm
           python3 -m pip install --quiet pillow
-      - name: Apply SpaceGram v0.2 Patch
+      - name: Apply SpaceGram v0.3 Patch
         env:
           SECRET_APP_ID: ${{ secrets.APP_ID }}
           SECRET_APP_HASH: ${{ secrets.APP_HASH }}
@@ -89,31 +89,153 @@ jobs:
                           f.write(new_txt)
                       print("Patched:", path)
 
-          # 1. Заголовок списка чатов и папка загрузок
-          patch_file("TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java",
-                     lambda s: s.replace('return "exteraless";', 'return "SpaceGram";'))
-          patch_file("TMessagesProj/src/main/java/com/exteragram/messenger/utils/text/LocaleUtils.java",
-                     lambda s: s.replace('return "exteraless";', 'return "SpaceGram";'))
-          patch_file("TMessagesProj/src/main/java/tw/nekomimi/nekogram/NekoConfig.java",
-                     lambda s: s.replace('"customSavePath", configTypeString, "exteraless"', '"customSavePath", configTypeString, "SpaceGram"'))
+          # 1. Заголовок чатов, превью в Оформлении и GitHub в настройках
+          for root, _, files in os.walk("TMessagesProj/src/main/java"):
+              for fn in files:
+                  if fn.endswith((".java", ".kt")) and fn != "OpenExteraSettingsActivity.java":
+                      p = os.path.join(root, fn)
+                      patch_file(p, lambda s: s.replace('"exteraless"', '"SpaceGram"')
+                                               .replace('exteraless/exteraless', 'rowwwex/SpaceGram')
+                                               .replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
+                                               .replace('"@exteraless"', '"@SpaceGram_Client"'))
 
-          # 2. Ссылки на канал @SpaceGram_Client, GitHub, User-Agent и блок "О моде"
+          # 2. Создаём отдельный экран "О форке" (ForkInfoActivity.java)
+          fork_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/ForkInfoActivity.java"
+          with open(fork_activity_path, "w", encoding="utf-8") as f:
+              f.write('''package app.exteraless.settings;
+
+          import android.content.Context;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.widget.FrameLayout;
+          import androidx.annotation.NonNull;
+          import androidx.recyclerview.widget.LinearLayoutManager;
+          import androidx.recyclerview.widget.RecyclerView;
+          import org.telegram.messenger.R;
+          import org.telegram.messenger.browser.Browser;
+          import org.telegram.ui.ActionBar.ActionBar;
+          import org.telegram.ui.ActionBar.BaseFragment;
+          import org.telegram.ui.ActionBar.Theme;
+          import org.telegram.ui.Cells.HeaderCell;
+          import org.telegram.ui.Cells.ShadowSectionCell;
+          import org.telegram.ui.Cells.TextSettingsCell;
+          import org.telegram.ui.Components.LayoutHelper;
+          import org.telegram.ui.Components.RecyclerListView;
+
+          public class ForkInfoActivity extends BaseFragment {
+              @Override
+              public View createView(Context context) {
+                  actionBar.setBackButtonImage(R.drawable.ic_ab_back);
+                  actionBar.setAllowOverlayTitle(true);
+                  actionBar.setTitle("О форке");
+                  actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
+                      @Override
+                      public void onItemClick(int id) {
+                          if (id == -1) finishFragment();
+                      }
+                  });
+
+                  fragmentView = new FrameLayout(context);
+                  FrameLayout frameLayout = (FrameLayout) fragmentView;
+                  frameLayout.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
+
+                  RecyclerListView listView = new RecyclerListView(context);
+                  listView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false));
+                  listView.setVerticalScrollBarEnabled(false);
+                  listView.setAdapter(new ListAdapter(context));
+                  frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+                  listView.setOnItemClickListener((view, position) -> {
+                      if (position == 1) {
+                          Browser.openUrl(getParentActivity(), "https://github.com");
+                      } else if (position == 4) {
+                          Browser.openUrl(getParentActivity(), "https://google.com");
+                      } else if (position == 5) {
+                          Browser.openUrl(getParentActivity(), "https://claude.ai");
+                      } else if (position == 6) {
+                          Browser.openUrl(getParentActivity(), "https://chatgpt.com");
+                      }
+                  });
+
+                  return fragmentView;
+              }
+
+              private static class ListAdapter extends RecyclerListView.SelectionAdapter {
+                  private final Context mContext;
+                  ListAdapter(Context context) { mContext = context; }
+
+                  @Override
+                  public int getItemCount() { return 8; }
+
+                  @Override
+                  public boolean isEnabled(RecyclerView.ViewHolder holder) {
+                      int pos = holder.getAdapterPosition();
+                      return pos == 1 || pos == 4 || pos == 5 || pos == 6;
+                  }
+
+                  @NonNull
+                  @Override
+                  public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+                      View view;
+                      if (viewType == 0) {
+                          view = new HeaderCell(mContext);
+                          view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                      } else if (viewType == 1) {
+                          view = new TextSettingsCell(mContext);
+                          view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                      } else {
+                          view = new ShadowSectionCell(mContext);
+                      }
+                      return new RecyclerListView.Holder(view);
+                  }
+
+                  @Override
+                  public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+                      if (holder.getItemViewType() == 0) {
+                          HeaderCell cell = (HeaderCell) holder.itemView;
+                          if (position == 0) cell.setText("Основа клиента");
+                          else if (position == 3) cell.setText("Благодарности");
+                      } else if (holder.getItemViewType() == 1) {
+                          TextSettingsCell cell = (TextSettingsCell) holder.itemView;
+                          if (position == 1) cell.setTextAndValue("exteraless", "GitHub", false);
+                          else if (position == 4) cell.setTextAndValue("Gemini", "Google AI", true);
+                          else if (position == 5) cell.setTextAndValue("Claude", "Anthropic", true);
+                          else if (position == 6) cell.setTextAndValue("ChatGPT", "OpenAI", false);
+                      }
+                  }
+
+                  @Override
+                  public int getItemViewType(int position) {
+                      if (position == 0 || position == 3) return 0;
+                      if (position == 2 || position == 7) return 2;
+                      return 1;
+                  }
+              }
+          }
+          ''')
+
+          # 3. Точечно обновляем OpenExteraSettingsActivity.java по известным строкам
           def patch_settings(s):
-              s = s.replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
-              s = s.replace('https://github.com', 'https://github.com')
+              s = s.replace('getMessagesController().openByUserName("exteraless", this, 1);',
+                            'getMessagesController().openByUserName("SpaceGram_Client", this, 1);')
               s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
-              s = re.sub(r'getString\(R\.string\.[^)]*Design[^)]*\)', '"О моде"', s)
-              s = re.sub(r'"@the8055u"', '"Исходный код: exteraless"', s)
-              s = re.sub(r'"@BlueprintDsgn"', '"Благодарность: Gemini & Claude"', s)
-              s = re.sub(r'openByUserName\("the8055u"[^)]*\)', 'openByUserName("SpaceGram_Client", this, 1)', s)
-              s = re.sub(r'openByUserName\("BlueprintDsgn"[^)]*\)', 'openByUserName("SpaceGram_Client", this, 1)', s)
+              s = s.replace('"https://github.com"',
+                            '"https://github.com"')
+              # Убираем вторую дизайнерскую строку (designStudioRow) и превращаем первую в кнопку "О форке"
+              s = s.replace('designStudioRow = addRow("designStudio");', '')
+              s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
+                            'presentFragment(new ForkInfoActivity());')
+              s = s.replace('cell.setText(getString(R.string.OpenExteraDesignSection));',
+                            'cell.setText("О моде");')
+              s = s.replace('cell.setTextAndValueAndIcon(getString(R.string.OpenExteraDesigner),\n                                "@the8055u", R.drawable.msg_theme, true);',
+                            'cell.setTextAndIcon("О форке", R.drawable.msg_info, false);')
+              s = s.replace('cell.setTextAndValueAndIcon(getString(R.string.OpenExteraDesigner),\n                        "@the8055u", R.drawable.msg_theme, true);',
+                            'cell.setTextAndIcon("О форке", R.drawable.msg_info, false);')
               return s
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java", patch_settings)
-          patch_file("TMessagesProj/src/main/java/app/exteraless/updater/GitHubUpdater.java",
-                     lambda s: s.replace('exteraless/exteraless', 'rowwwex/SpaceGram').replace('"exteraless"', '"SpaceGram"'))
 
-          # 3. Замена 11 иконок во всех папках drawable* + чистые PNG
+          # 4. Иконки без двойного контура + точные подписи + сетка 4x4 (16 штук)
           res_dir = "TMessagesProj/src/main/res"
           xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
 
@@ -124,39 +246,37 @@ jobs:
 
           slots = [
               ("exteraless", "SpaceGram"),
-              ("blueprint", "Nothing"),
+              ("blueprint", "Glitch"),
               ("red", "Cyan Orbit"),
-              ("nya", "Light"),
-              ("ayu", "Emerald"),
-              ("quack", "Sunset"),
-              ("go", "Cyber"),
-              ("hand", "Glitch"),
-              ("mono", "Pixel Classic"),
-              ("nothing", "Pixel Emerald"),
-              ("plus", "BSOD")
+              ("nya", "Emerald"),
+              ("ayu", "Pixel Classic"),
+              ("quack", "Pixel Emerald"),
+              ("go", "Sunset"),
+              ("hand", "BSOD"),
+              ("mono", "Cyber"),
+              ("nothing", "Nothing"),
+              ("plus", "Light")
           ]
+
+          empty_fg = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
 
           for idx, (slot, label) in enumerate(slots, start=1):
               src_png = os.path.join(xxx_dir, f"ic_spacegram_{idx}.png")
               if os.path.exists(src_png):
-                  img = Image.open(src_png).convert("RGBA").resize((512, 512), Image.LANCZOS)
+                  raw = Image.open(src_png).convert("RGBA").resize((512, 512), Image.LANCZOS)
                   for old in glob.glob(os.path.join(res_dir, "drawable*", f"{slot}_icon_background*")) + glob.glob(os.path.join(res_dir, "drawable*", f"{slot}_icon_foreground*")):
                       os.remove(old)
                   if slot == "exteraless":
                       for old_logo in glob.glob(os.path.join(res_dir, "drawable*", "exteraless_icon.*")):
                           os.remove(old_logo)
-                      img.save(os.path.join(xxx_dir, "exteraless_icon.png"), "PNG")
-                  img.save(os.path.join(xxx_dir, f"{slot}_icon_background.png"), "PNG")
-                  fg = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
-                  inner = img.resize((348, 348), Image.LANCZOS)
-                  fg.paste(inner, (82, 82), inner)
-                  fg.save(os.path.join(xxx_dir, f"{slot}_icon_foreground.png"), "PNG")
+                      raw.save(os.path.join(xxx_dir, "exteraless_icon.png"), "PNG")
 
-                  patch_file("TMessagesProj/src/main/java/org/telegram/ui/LauncherIconController.java",
-                             lambda s, sl=slot: s.replace(f'R.drawable.{sl}_icon_background,\n                R.drawable.app_icon_empty_foreground',
-                                                          f'R.drawable.{sl}_icon_background,\n                R.drawable.{sl}_icon_foreground')
-                                                 .replace(f'R.drawable.{sl}_icon_background, R.drawable.app_icon_empty_foreground',
-                                                          f'R.drawable.{sl}_icon_background, R.drawable.{sl}_icon_foreground'))
+                  edge_color = raw.getpixel((4, 4))
+                  bg = Image.new("RGBA", (512, 512), edge_color)
+                  inner = raw.resize((384, 384), Image.LANCZOS)
+                  bg.paste(inner, (64, 64), inner)
+                  bg.save(os.path.join(xxx_dir, f"{slot}_icon_background.png"), "PNG")
+                  empty_fg.save(os.path.join(xxx_dir, f"{slot}_icon_foreground.png"), "PNG")
 
           for old_raw in glob.glob(os.path.join(xxx_dir, "ic_spacegram_*.png")):
               os.remove(old_raw)
@@ -167,16 +287,16 @@ jobs:
           ]
           icon_keys = [
               ("AppIconExteraless", "SpaceGram"),
-              ("AppIconBlueprint", "Nothing"),
+              ("AppIconBlueprint", "Glitch"),
               ("AppIconRed", "Cyan Orbit"),
-              ("AppIconNya", "Light"),
-              ("AppIconAyu", "Emerald"),
-              ("AppIconQuack", "Sunset"),
-              ("AppIconGo", "Cyber"),
-              ("AppIconHand", "Glitch"),
-              ("AppIconMono", "Pixel"),
-              ("AppIconNothing", "Emerald 8-bit"),
-              ("AppIconPlus", "BSOD")
+              ("AppIconNya", "Emerald"),
+              ("AppIconAyu", "Pixel Classic"),
+              ("AppIconQuack", "Pixel Emerald"),
+              ("AppIconGo", "Sunset"),
+              ("AppIconHand", "BSOD"),
+              ("AppIconMono", "Cyber"),
+              ("AppIconNothing", "Nothing"),
+              ("AppIconPlus", "Light")
           ]
           for sf in str_files:
               def upd_str(s):
@@ -186,7 +306,7 @@ jobs:
               patch_file(sf, upd_str)
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIcons.java",
-                     lambda s: s.replace("LauncherIcon.values()", "java.util.Arrays.stream(LauncherIcon.values()).filter(i -> i != LauncherIcon.VINTAGE).toArray(LauncherIcon[]::new)"))
+                     lambda s: s.replace("LauncherIcon.values()", "java.util.Arrays.stream(LauncherIcon.values()).filter(i -> i != LauncherIcon.DEFAULT).toArray(LauncherIcon[]::new)"))
           patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIconsActivity.java",
                      lambda s: re.sub(r'spanCount\s*=\s*\d+', 'spanCount = 4', s))
           EOF
@@ -217,7 +337,7 @@ jobs:
       - name: Upload arm64-v8a Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SpaceGram-v0.2
+          name: SpaceGram-v0.3
           path: |
             TMessagesProj/build/outputs/apk/release/*.apk
       - name: Publish GitHub Release
@@ -231,4 +351,4 @@ jobs:
           cp "$APK_FILE" "SpaceGram-arm64-$SHORT.apk"
           gh release create "$TAG" "SpaceGram-arm64-$SHORT.apk" \
             --target "$GITHUB_SHA" --latest \
-            --title "SpaceGram ($SHORT)" --notes "SpaceGram update $SHORT"
+            --title "SpaceGram ($SHORT)" --notes "SpaceGram v0.3 update $SHORT"
