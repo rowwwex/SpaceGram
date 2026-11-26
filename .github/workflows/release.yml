@@ -207,9 +207,9 @@ jobs:
               ("sg_light",   night_b,  day_b, "#52525B", "#18181B", "#27272A", "#3F3F46", "#F4F4F5", "#E4E4E7"),
           ]
 
-          for spec in theme_specs:
-              build_theme_pair(*spec)
-
+          for out_prefix, base_dark, base_light, acc, dbg, dcard, dbub, lbg, lbub in theme_specs:
+              build_theme_pair(base_dark, base_light, out_prefix, acc, dbg, dcard, dbub, lbg, lbub)
+              
           # 3. Обновляем TypefaceHelper.java: поддержка шрифтов тем + железный заголовок "SpaceGram"
           def patch_typeface(s):
               helper_code = '''
@@ -552,6 +552,283 @@ jobs:
 
                       descView = new TextView(context);
                       descView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+
+          # 4. Создаём экран "Темы" (SpaceGramThemesActivity.java) с карточками в стиле Плагинов и BottomSheet выбора
+          themes_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/SpaceGramThemesActivity.java"
+          with open(themes_activity_path, "w", encoding="utf-8") as f:
+              f.write('''package app.exteraless.settings;
+
+          import static org.telegram.messenger.AndroidUtilities.dp;
+
+          import android.content.Context;
+          import android.graphics.Color;
+          import android.graphics.Outline;
+          import android.text.TextUtils;
+          import android.util.TypedValue;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.view.ViewOutlineProvider;
+          import android.widget.FrameLayout;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import androidx.annotation.NonNull;
+          import androidx.recyclerview.widget.RecyclerView;
+
+          import org.telegram.messenger.AndroidUtilities;
+          import org.telegram.messenger.ApplicationLoader;
+          import org.telegram.messenger.R;
+          import org.telegram.ui.ActionBar.BottomSheet;
+          import org.telegram.ui.ActionBar.Theme;
+          import org.telegram.ui.Cells.CheckBoxCell;
+          import org.telegram.ui.Components.LayoutHelper;
+          import org.telegram.ui.LauncherIconController;
+
+          import java.io.BufferedReader;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.io.InputStreamReader;
+          import java.lang.reflect.Method;
+          import java.nio.charset.StandardCharsets;
+          import java.util.ArrayList;
+          import java.util.List;
+          import java.util.Locale;
+
+          import tw.nekomimi.nekogram.helpers.TypefaceHelper;
+          import tw.nekomimi.nekogram.settings.BaseNekoSettingsActivity;
+
+          public class SpaceGramThemesActivity extends BaseNekoSettingsActivity {
+
+              private static class ThemePreset {
+                  final String id;
+                  final String title;
+                  final String teaser;
+                  final int iconRes;
+                  final String iconEnum;
+                  final int fontMode;
+                  final String fontName;
+
+                  ThemePreset(String id, String title, String teaser, int iconRes, String iconEnum, int fontMode, String fontName) {
+                      this.id = id;
+                      this.title = title;
+                      this.teaser = teaser;
+                      this.iconRes = iconRes;
+                      this.iconEnum = iconEnum;
+                      this.fontMode = fontMode;
+                      this.fontName = fontName;
+                  }
+              }
+
+              private static final ThemePreset[] PRESETS = new ThemePreset[]{
+                  new ThemePreset("sg_cosmic", "SpaceGram", "Глубокий космос и холодное орбитальное свечение", R.drawable.exteraless_icon_background, "EXTERALESS", 1, "Euclid Circular B"),
+                  new ThemePreset("sg_glitch", "Glitch", "Цифровой сбой на грани темноты и хроматики", R.drawable.blueprint_icon_background, "BLUEPRINT", 4, "Press Start 2P"),
+                  new ThemePreset("sg_cyan", "Cyan Orbit", "Чистый импульс ледяного неона в вакууме", R.drawable.red_icon_background, "RED", 1, "Euclid Circular B"),
+                  new ThemePreset("sg_emerald", "Emerald", "Тёмная глубина изумруда с мягким свечением", R.drawable.nya_icon_background, "NYA", 1, "Euclid Circular B"),
+                  new ThemePreset("sg_pixel", "Pixel Classic", "Ламповая классика в духе воксельных миров", R.drawable.ayu_icon_background, "AYU", 2, "Pixelify Sans"),
+                  new ThemePreset("sg_pixem", "Pixel Emerald", "Редкая руда и строгая 8-битная геометрия", R.drawable.quack_icon_background, "QUACK", 2, "Pixelify Sans"),
+                  new ThemePreset("sg_sunset", "Sunset", "Тёплый горизонт заката и вечерний градиент", R.drawable.go_icon_background, "GO", 1, "Euclid Circular B"),
+                  new ThemePreset("sg_bsod", "BSOD", "Критическая эстетика синего экрана 0x0000007B", R.drawable.hand_icon_background, "HAND", 3, "JetBrains Mono"),
+                  new ThemePreset("sg_cyber", "Cyber", "Ночной мегаполис, фиолет и электрический разряд", R.drawable.mono_icon_background, "MONO", 3, "JetBrains Mono"),
+                  new ThemePreset("sg_nothing", "Nothing", "Чистый монохром, матрица и ничего лишнего", R.drawable.nothing_icon_background, "NOTHING", 4, "Press Start 2P"),
+                  new ThemePreset("sg_light", "Light", "Светлый минимализм с контрастным характером", R.drawable.plus_icon_background, "PLUS", 1, "Euclid Circular B")
+              };
+
+              private int[] presetRows = new int[PRESETS.length];
+              private int bottomDividerRow;
+
+              @Override
+              protected void updateRows() {
+                  super.updateRows();
+                  for (int i = 0; i < PRESETS.length; i++) {
+                      presetRows[i] = addRow("preset_" + i);
+                  }
+                  bottomDividerRow = addRow();
+              }
+
+              @Override
+              protected String getActionBarTitle() {
+                  return "Темы";
+              }
+
+              @Override
+              protected String getKey() {
+                  return "spacegram_themes";
+              }
+
+              @Override
+              protected BaseListAdapter createAdapter(Context context) {
+                  return new ListAdapter(context);
+              }
+
+              @Override
+              protected void onItemClick(View view, int position, float x, float y) {
+              }
+
+              private void showApplySheet(ThemePreset preset) {
+                  Context ctx = getParentActivity();
+                  if (ctx == null) return;
+
+                  BottomSheet.Builder builder = new BottomSheet.Builder(ctx);
+                  builder.setTitle("Применить «" + preset.title + "»", true);
+
+                  LinearLayout container = new LinearLayout(ctx);
+                  container.setOrientation(LinearLayout.VERTICAL);
+                  container.setPadding(0, dp(4), 0, dp(12));
+
+                  boolean isDarkNow = Theme.getCurrentTheme() != null && Theme.getCurrentTheme().isDark();
+                  String modeLabel = isDarkNow ? "Тёмная палитра" : "Светлая палитра";
+
+                  CheckBoxCell cbColors = new CheckBoxCell(ctx, 1);
+                  cbColors.setText("Цвета интерфейса", modeLabel, true, true);
+                  cbColors.setOnClickListener(v -> cbColors.setChecked(!cbColors.isChecked(), true));
+                  container.addView(cbColors, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+                  CheckBoxCell cbWallpaper = new CheckBoxCell(ctx, 1);
+                  cbWallpaper.setText("Фон и обои чата", "В тон темы", true, true);
+                  cbWallpaper.setOnClickListener(v -> cbWallpaper.setChecked(!cbWallpaper.isChecked(), true));
+                  container.addView(cbWallpaper, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+                  CheckBoxCell cbFont = new CheckBoxCell(ctx, 1);
+                  cbFont.setText("Шрифт темы", preset.fontName, true, true);
+                  cbFont.setOnClickListener(v -> cbFont.setChecked(!cbFont.isChecked(), true));
+                  container.addView(cbFont, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+                  CheckBoxCell cbIcon = new CheckBoxCell(ctx, 1);
+                  cbIcon.setText("Иконка приложения", preset.title, true, false);
+                  cbIcon.setOnClickListener(v -> cbIcon.setChecked(!cbIcon.isChecked(), true));
+                  container.addView(cbIcon, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
+
+                  TextView applyBtn = new TextView(ctx);
+                  applyBtn.setText("Применить");
+                  applyBtn.setTextColor(Color.WHITE);
+                  applyBtn.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+                  applyBtn.setTypeface(AndroidUtilities.bold());
+                  applyBtn.setGravity(Gravity.CENTER);
+                  applyBtn.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
+                          dp(12),
+                          Theme.getColor(Theme.key_featuredStickers_addButton),
+                          Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
+                  ));
+                  container.addView(applyBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48, 16, 14, 16, 4));
+
+                  builder.setCustomView(container);
+                  BottomSheet sheet = builder.create();
+
+                  applyBtn.setOnClickListener(v -> {
+                      sheet.dismiss();
+                      executeApply(preset, cbColors.isChecked(), cbWallpaper.isChecked(), cbFont.isChecked(), cbIcon.isChecked());
+                  });
+
+                  sheet.show();
+              }
+
+              private void executeApply(ThemePreset preset, boolean applyColors, boolean applyWallpaper, boolean applyFont, boolean applyIcon) {
+                  boolean isDarkNow = Theme.getCurrentTheme() != null && Theme.getCurrentTheme().isDark();
+                  String suffix = isDarkNow ? "_dark.attheme" : "_light.attheme";
+
+                  if (applyColors || applyWallpaper) {
+                      try {
+                          File outFile = new File(ApplicationLoader.getFilesDirFixed(), preset.id + suffix);
+                          List<String> filtered = new ArrayList<>();
+                          try (InputStream is = ApplicationLoader.applicationContext.getAssets().open("sg_themes/" + preset.id + suffix);
+                               BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                              String line;
+                              while ((line = br.readLine()) != null) {
+                                  boolean isWall = line.toLowerCase(Locale.US).startsWith("chat_wallpaper");
+                                  if (applyColors && applyWallpaper) {
+                                      filtered.add(line);
+                                  } else if (applyColors && !isWall) {
+                                      filtered.add(line);
+                                  } else if (applyWallpaper && isWall) {
+                                      filtered.add(line);
+                                  }
+                              }
+                          }
+                          try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                              for (String l : filtered) {
+                                  fos.write((l + "\n").getBytes(StandardCharsets.UTF_8));
+                              }
+                          }
+                          int i0 = 0, i1 = 1, i3 = 3;
+                          for (Method m : Theme.class.getDeclaredMethods()) {
+                              if ("applyThemeFile".equals(m.getName())) {
+                                  Class<?>[] p = m.getParameterTypes();
+                                  if (p.length == 4 && p[i0] == File.class && p[i1] == String.class && p[i3] == boolean.class) {
+                                      m.setAccessible(true);
+                                      m.invoke(null, outFile, preset.title, null, false);
+                                      break;
+                                  }
+                              }
+                          }
+                      } catch (Throwable ignored) {}
+                  }
+
+                  if (applyFont) {
+                      ApplicationLoader.applicationContext.getSharedPreferences("spacegram_prefs", 0)
+                              .edit().putInt("font_style", preset.fontMode).apply();
+                      TypefaceHelper.resetCustomFont();
+                  }
+
+                  if (applyIcon) {
+                      try {
+                          LauncherIconController.LauncherIcon target = LauncherIconController.LauncherIcon.valueOf(preset.iconEnum);
+                          LauncherIconController.setIcon(target);
+                      } catch (Throwable ignored) {}
+                  }
+
+                  String msg = applyFont
+                          ? "Тема «" + preset.title + "» применена (перезапустите клиент для смены шрифта)"
+                          : "Тема «" + preset.title + "» применена";
+                  Toast.makeText(getParentActivity(), msg, Toast.LENGTH_SHORT).show();
+              }
+
+              private static class ThemeCardCell extends FrameLayout {
+                  private final LinearLayout card;
+                  private final ImageView iconView;
+                  private final TextView titleView;
+                  private final TextView descView;
+                  private final TextView buttonView;
+
+                  public ThemeCardCell(Context context) {
+                      super(context);
+                      setPadding(dp(12), dp(6), dp(12), dp(6));
+
+                      card = new LinearLayout(context);
+                      card.setOrientation(LinearLayout.HORIZONTAL);
+                      card.setGravity(Gravity.CENTER_VERTICAL);
+                      card.setPadding(dp(14), dp(14), dp(14), dp(14));
+                      card.setBackground(Theme.createRoundRectDrawable(dp(16), Theme.getColor(Theme.key_windowBackgroundWhite)));
+                      addView(card, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+                      iconView = new ImageView(context);
+                      iconView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                      iconView.setClipToOutline(true);
+                      iconView.setOutlineProvider(new ViewOutlineProvider() {
+                          @Override
+                          public void getOutline(View view, Outline outline) {
+                              outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(13));
+                          }
+                      });
+                      card.addView(iconView, LayoutHelper.createLinear(50, 50, 0, 0, 14, 0));
+
+                      LinearLayout textCol = new LinearLayout(context);
+                      textCol.setOrientation(LinearLayout.VERTICAL);
+                      card.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, 0, 0, 10, 0));
+
+                      titleView = new TextView(context);
+                      titleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+                      titleView.setTypeface(AndroidUtilities.bold());
+                      titleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+                      titleView.setSingleLine(true);
+                      titleView.setEllipsize(TextUtils.TruncateAt.END);
+                      textCol.addView(titleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+                      descView = new TextView(context);
+                      descView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
                       descView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
                       descView.setMaxLines(2);
                       descView.setEllipsize(TextUtils.TruncateAt.END);
@@ -621,7 +898,7 @@ jobs:
               }
           }
           ''')
-
+          
           # 5. Создаём экран "О форке" (ForkInfoActivity.java) со скруглёнными карточками и правильным слешем в URL
           fork_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/ForkInfoActivity.java"
           with open(fork_activity_path, "w", encoding="utf-8") as f:
