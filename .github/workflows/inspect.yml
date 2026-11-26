@@ -1,4 +1,4 @@
-name: Inspect Settings & Header
+name: Inspect Updater & Header
 
 on:
   workflow_dispatch:
@@ -8,11 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Read OpenExteraSettingsActivity & Header
+      - name: Read Updater, Header & AboutCell
         run: |
-          echo "=== OpenExteraSettingsActivity.java ==="
-          cat TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java
-          echo "=== GITHUB LINKS ==="
-          grep -rn "://github.com" TMessagesProj/src/main/java/ || true
-          echo "=== CHAT LIST TITLE & PREVIEW ==="
-          grep -rn "titleText" TMessagesProj/src/main/java/app/exteraless/ TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java || true
+          echo "=== AboutHeaderCell.java ==="
+          cat TMessagesProj/src/main/java/app/exteraless/settings/AboutHeaderCell.java
+          echo "=== GitHubUpdater.java ==="
+          cat TMessagesProj/src/main/java/app/exteraless/updater/GitHubUpdater.java
+          echo "=== ChatListPreviewCell.java ==="
+          cat TMessagesProj/src/main/java/app/exteraless/appearance/ChatListPreviewCell.java
+          echo "=== DialogsActivity titleText ==="
+          grep -rn -C 15 "titleText" TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java || true
