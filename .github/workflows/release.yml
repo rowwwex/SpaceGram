@@ -89,7 +89,7 @@ jobs:
                           f.write(new_txt)
                       print("Patched:", path)
 
-          # 1. Заголовок чатов, превью в Оформлении (TypefaceHelper) и GitHub/канал в остальных файлах
+          # 1. Заголовок чатов, превью в Оформлении и GitHub/канал во всех классах
           for root, _, files in os.walk("TMessagesProj/src/main/java"):
               for fn in files:
                   if fn.endswith((".java", ".kt")) and fn != "OpenExteraSettingsActivity.java":
@@ -98,9 +98,6 @@ jobs:
                                                .replace('exteraless/exteraless', 'rowwwex/SpaceGram')
                                                .replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
                                                .replace('"@exteraless"', '"@SpaceGram_Client"'))
-
-          patch_file("TMessagesProj/src/main/java/tw/nekomimi/nekogram/helpers/TypefaceHelper.java",
-                     lambda s: re.sub(r'\bexteraless\b', 'SpaceGram', s))
 
           # 2. Создаём экран "О форке" на базе BaseNekoSettingsActivity (скруглённые карточки как в настройках)
           fork_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/ForkInfoActivity.java"
@@ -227,8 +224,12 @@ jobs:
               s = s.replace('getMessagesController().openByUserName("exteraless", this, 1);',
                             'getMessagesController().openByUserName("SpaceGram_Client", this, 1);')
               s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
-              s = s.replace('"https://github.com"',
-                            '"https://github.com"')
+              # 3. Точечно обновляем OpenExteraSettingsActivity.java (убираем designStudioRow и ставим правильные ссылки)
+          def patch_settings(s):
+              s = s.replace('getMessagesController().openByUserName("exteraless", this, 1);',
+                            'getMessagesController().openByUserName("SpaceGram_Client", this, 1);')
+              s = s.replace('"@exteraless"', '"@SpaceGram_Client"')
+              s = s.replace('exteraless/exteraless', 'rowwwex/SpaceGram')
               s = s.replace('designStudioRow = addRow("designStudio");', 'designStudioRow = -1;')
               s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
                             'presentFragment(new ForkInfoActivity());')
@@ -239,6 +240,7 @@ jobs:
               return s
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/settings/OpenExteraSettingsActivity.java", patch_settings)
+
           # 4. Иконки + названия + сетка 4x4
           res_dir = "TMessagesProj/src/main/res"
           xxx_dir = os.path.join(res_dir, "drawable-xxxhdpi")
