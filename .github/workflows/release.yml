@@ -306,7 +306,7 @@ jobs:
               patch_file(sf, upd_str)
 
           patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIcons.java",
-                     lambda s: s.replace("LauncherIcon.values()", "java.util.Arrays.stream(LauncherIcon.values()).filter(i -> i != LauncherIcon.DEFAULT).toArray(LauncherIcon[]::new)"))
+                     lambda s: s.replace("LauncherIcon.values()", "java.util.Arrays.copyOfRange(LauncherIcon.values(), 0, LauncherIcon.values().length - 1)"))
           patch_file("TMessagesProj/src/main/java/app/exteraless/appicons/AppIconsActivity.java",
                      lambda s: re.sub(r'spanCount\s*=\s*\d+', 'spanCount = 4', s))
           EOF
