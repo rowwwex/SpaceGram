@@ -753,11 +753,8 @@ jobs:
                             'private int themesRow;\n    private int chatsRow;')
               s = s.replace('chatsRow = addRow("chats");',
                             'themesRow = addRow("themes");\n        chatsRow = addRow("chats");')
-              s = s.replace('if (position == chatsRow) {',
-                         'if (position == themesRow) {\n            presentFragment(new SpaceGramThemesActivity());\n        } else if (position == chatsRow) {', 1)
-              s = s.replace('if (position == chatsRow) {',
-                         'if (position == themesRow) {\n                    cell.setTextAndIcon("Темы", R.drawable.msg_theme, true);\n                } else if (position == chatsRow) {', 1)              s = s.replace('designStudioRow = addRow("designStudio");', 'designStudioRow = -1;')
-              s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
+              s = s.replace('if (position == chatsRow) {', 'if (position == themesRow) { presentFragment(new SpaceGramThemesActivity()); } else if (position == chatsRow) {', 1)
+              s = s.replace('if (position == chatsRow) {', 'if (position == themesRow) { cell.setTextAndIcon("Темы", R.drawable.msg_theme, true); } else if (position == chatsRow) {', 1)              s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
                             'presentFragment(new ForkInfoActivity());')
               s = s.replace('cell.setText(getString(R.string.OpenExteraDesignSection));',
                             'cell.setText("О моде");')
