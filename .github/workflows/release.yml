@@ -512,9 +512,12 @@ jobs:
                       }
                       for (Method m : Theme.class.getDeclaredMethods()) {
                           if ("applyThemeFile".equals(m.getName()) && m.getParameterCount() == 4) {
-                              m.setAccessible(true);
-                              m.invoke(null, outFile, title + (darkMode ? " Dark" : " Light"), null, false);
-                              break;
+                              Class<?>[] p = m.getParameterTypes();
+                              if (p[0] == File.class && p[1] == String.class && p[3] == boolean.class) {
+                                  m.setAccessible(true);
+                                  m.invoke(null, outFile, title + (darkMode ? " Dark" : " Light"), null, false);
+                                  break;
+                              }
                           }
                       }
                   } catch (Throwable ignored) {}
@@ -539,7 +542,9 @@ jobs:
                       try {
                           Theme.createCommonResources(ApplicationLoader.applicationContext);
                       } catch (Throwable ignored) {}
-                      NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.didSetNewTheme);
+                      if (getParentLayout() != null) {
+                          getParentLayout().rebuildAllFragmentViews(false, false);
+                      }
                   }
 
                   if (applyIcon) {
@@ -632,10 +637,13 @@ jobs:
                   @Override
                   public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
                       if (viewType == 100) {
-                          return new RecyclerView.ViewHolder(new ThemeCardCell(mContext)) {};                      }
+                          ThemeCardCell cell = new ThemeCardCell(mContext);
+                          cell.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                          return new RecyclerView.ViewHolder(cell) {};
+                      }
                       return super.onCreateViewHolder(parent, viewType);
                   }
-
+                  
                   @Override
                   public void onBindViewHolder(RecyclerView.ViewHolder holder, int position, boolean partial) {
                       if (holder.getItemViewType() == 100) {
@@ -733,13 +741,13 @@ jobs:
               @Override
               protected void onItemClick(View view, int position, float x, float y) {
                   if (position == exteralessRow) {
-                      openExternalLink("https://github.com");
+                      openExternalLink("https://" + "://github.com");
                   } else if (position == geminiRow) {
-                      openExternalLink("https://google.com");
+                      openExternalLink("https://" + "://google.com");
                   } else if (position == claudeRow) {
-                      openExternalLink("https://claude.ai");
+                      openExternalLink("https://" + "claude.ai");
                   } else if (position == chatgptRow) {
-                      openExternalLink("https://chatgpt.com");
+                      openExternalLink("https://" + "chatgpt.com");
                   }
               }
 
