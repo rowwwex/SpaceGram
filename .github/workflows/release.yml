@@ -80,6 +80,7 @@ jobs:
           [ -n "$MONO_URL" ] && curl -sL "$MONO_URL" -o TMessagesProj/src/main/assets/fonts/sg_mono.ttf || true
           [ -n "$DOT_URL" ] && curl -sL "$DOT_URL" -o TMessagesProj/src/main/assets/fonts/sg_dot.ttf || true
 
+          pip install -q Pillow
           python3 - << 'EOF'
           import os, re, glob, colorsys
           from PIL import Image
