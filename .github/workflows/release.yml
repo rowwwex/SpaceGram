@@ -755,8 +755,7 @@ jobs:
                             'themesRow = addRow("themes");\n        chatsRow = addRow("chats");')
               s = s.replace('if (position == chatsRow) {',
                             'if (position == themesRow) { presentFragment(new SpaceGramThemesActivity()); } else if (position == chatsRow) {', 1)
-              s = s.replace('if (position == chatsRow) {',
-                            'if (position == themesRow) { cell.setTextAndIcon("Темы", R.drawable.msg_theme, true); } else if (position == chatsRow) {', 1)
+              s = 'if (position == themesRow) { cell.setTextAndIcon("Темы", R.drawable.msg_theme, true); } else if (position == chatsRow) {'.join(s.rsplit('if (position == chatsRow) {', 1))
               s = s.replace('designStudioRow = addRow("designStudio");',
                             'designStudioRow = -1;')
               s = s.replace('getMessagesController().openByUserName("the8055u", this, 1);',
