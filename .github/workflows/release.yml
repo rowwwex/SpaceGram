@@ -4,65 +4,60 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish release for in-app updater'
-        type: boolean
+        description: 'Publish GitHub Release'
+        required: false
         default: true
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+        type: boolean
 
 jobs:
   build:
     name: Gradle Build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      build_timestamp: ${{ steps.release_build_step.outputs.build_timestamp }}
-    env:
-      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
-      CCACHE_HARDLINK: "true"
-      CCACHE_NOHASHDIR: "true"
-      CCACHE_MAXSIZE: "2G"
-      NATIVE_TARGET: "arm64-v8a"
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
           submodules: recursive
+
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
+
       - name: Set up Python for Chaquopy
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Point Chaquopy at that Python
-        run: echo "CHAQUOPY_BUILD_PYTHON=$(which python3.11 || which python)" >> $GITHUB_ENV
+        run: |
+          PYTHON_PATH=$(which python3)
+          echo "chaquopy.python=$PYTHON_PATH" >> gradle.properties
+
       - name: Cache Permanent APK Signing Key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
+          path: TMessagesProj/release.keystore
           key: spacegram-signing-key-v1
+
       - name: Set up Ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: android-ndk
+          key: ${{ github.job }}-ccache
+          max-size: 2G
+
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Set up Android SDK Tools
-        uses: android-actions/setup-android@v4
-        with:
-          packages: "build-tools;36.0.0 ndk;27.2.12479018 platforms;android-37.0"
+        uses: android-actions/setup-android@v3
+
       - name: Install Native Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes nasm curl
-          python3 -m pip install --quiet pillow
+          sudo apt-get install -y ninja-build cmake yasm nasm
+
       - name: Apply SpaceGram v0.3 Themes & Fonts Patch
         env:
           SECRET_APP_ID: ${{ secrets.APP_ID }}
@@ -76,9 +71,12 @@ jobs:
           find TMessagesProj/src/main/res* -name "strings*.xml" -exec sed -i -E 's|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|>([^<]*)[Ee]xteraless([^<]*)<|>\1SpaceGram\2<|g; s|@SpaceGram([^_])|@SpaceGram_Client\1|g; s|@SpaceGram<|@SpaceGram_Client<|g' {} +
 
           mkdir -p TMessagesProj/src/main/assets/fonts
-          curl -sL "https://githubusercontent.com" -o TMessagesProj/src/main/assets/fonts/sg_pixel.ttf || true
-          curl -sL "https://githubusercontent.com" -o TMessagesProj/src/main/assets/fonts/sg_mono.ttf || true
-          curl -sL "https://githubusercontent.com" -o TMessagesProj/src/main/assets/fonts/sg_dot.ttf || true
+          PIXEL_URL=$(curl -sA "Android 4.0" "https://googleapis.com" | grep -oE 'https://[^)]+\.ttf' | head -n 1)
+          MONO_URL=$(curl -sA "Android 4.0" "https://googleapis.com" | grep -oE 'https://[^)]+\.ttf' | head -n 1)
+          DOT_URL=$(curl -sA "Android 4.0" "https://googleapis.com" | grep -oE 'https://[^)]+\.ttf' | head -n 1)
+          [ -n "$PIXEL_URL" ] && curl -sL "$PIXEL_URL" -o TMessagesProj/src/main/assets/fonts/sg_pixel.ttf || true
+          [ -n "$MONO_URL" ] && curl -sL "$MONO_URL" -o TMessagesProj/src/main/assets/fonts/sg_mono.ttf || true
+          [ -n "$DOT_URL" ] && curl -sL "$DOT_URL" -o TMessagesProj/src/main/assets/fonts/sg_dot.ttf || true
 
           python3 - << 'EOF'
           import os, re, glob, colorsys
@@ -94,7 +92,7 @@ jobs:
                           f.write(new_txt)
                       print("Patched:", path)
 
-          # 1. Глобальная замена бренда, ссылок и канала
+          # 1. Бренд, ссылки и канал
           for root, _, files in os.walk("TMessagesProj/src/main/java"):
               for fn in files:
                   if fn.endswith((".java", ".kt")) and fn != "OpenExteraSettingsActivity.java":
@@ -105,7 +103,7 @@ jobs:
                                                .replace('openByUserName("exteraless"', 'openByUserName("SpaceGram_Client"')
                                                .replace('"@exteraless"', '"@SpaceGram_Client"'))
 
-          # 2. Генерируем 22 темы (тёмную и светлую версию для каждой из 11 иконок)
+          # 2. Генерация 22 глубоких тёмных (AMOLED) и чистых светлых тем
           assets_dir = "TMessagesProj/src/main/assets"
           themes_out = os.path.join(assets_dir, "sg_themes")
           os.makedirs(themes_out, exist_ok=True)
@@ -122,11 +120,11 @@ jobs:
               u = ((a & 0xFF) << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF)
               return u - 0x100000000 if u >= 0x80000000 else u
 
-          def build_theme_pair(base_dark, base_light, out_prefix, accent_hex, dark_bg, dark_card, dark_bub, light_bg, light_bub):
+          def build_theme_pair(out_prefix, base_dark, base_light, accent_hex, dark_bg, dark_card, dark_bub, light_bg, light_bub):
               ar, ag, ab = hex_to_rgb(accent_hex)
               ah, al, asat = colorsys.rgb_to_hls(ar / 255.0, ag / 255.0, ab / 255.0)
 
-              # Dark theme
+              # Dark theme (глубокий чёрный OLED для списка чатов, карточек и чата)
               if os.path.exists(base_dark):
                   bgr, bgg, bgb = hex_to_rgb(dark_bg)
                   cr, cg, cb = hex_to_rgb(dark_card)
@@ -148,18 +146,22 @@ jobs:
                           h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
                           if "chat_outbubble" in kl and "gradient" not in kl and "shadow" not in kl and "selected" not in kl:
                               r, g, b = bur, bug, bub
-                          elif "windowbackgroundgray" in kl or "chat_wallpaper" in kl:
-                              r, g, b = bgr, bgg, bgb
-                          elif ("windowbackgroundwhite" in kl or "actionbardefault" in kl) and s < 0.25 and l < 0.25:
+                          elif "chat_inbubble" in kl and "gradient" not in kl and "shadow" not in kl and "selected" not in kl:
                               r, g, b = cr, cg, cb
-                          elif s > 0.28 and 0.15 < l < 0.88:
-                              nr, ng, nb = colorsys.hls_to_rgb(ah, l, min(1.0, max(asat * 0.85, s)))
+                          elif "chat_wallpaper" in kl or "windowbackgroundgray" in kl or "chat_messagepanelbackground" in kl:
+                              r, g, b = bgr, bgg, bgb
+                          elif ("windowbackgroundwhite" in kl or "actionbardefault" in kl) and "text" not in kl and "icon" not in kl and "search" not in kl and l < 0.28:
+                              r, g, b = bgr, bgg, bgb
+                          elif ("dialogbackground" in kl or "submenubackground" in kl or "pinnedoverlay" in kl) and l < 0.28:
+                              r, g, b = cr, cg, cb
+                          elif s > 0.20 and 0.12 < l < 0.90:
+                              nr, ng, nb = colorsys.hls_to_rgb(ah, min(0.56, max(0.38, l)), min(1.0, max(asat, s)))
                               r, g, b = int(nr * 255), int(ng * 255), int(nb * 255)
                           lines.append(f"{k}={argb_to_signed(a, r, g, b)}")
                   with open(os.path.join(themes_out, f"{out_prefix}_dark.attheme"), "w", encoding="utf-8") as f:
                       f.write("\n".join(lines) + "\n")
 
-              # Light theme
+              # Light theme (чистый светлый фон и глубокие контрастные акценты)
               if os.path.exists(base_light):
                   lbgr, lbgg, lbgb = hex_to_rgb(light_bg)
                   lbur, lbug, lbub = hex_to_rgb(light_bub)
@@ -182,35 +184,34 @@ jobs:
                               r, g, b = lbur, lbug, lbub
                           elif "chat_wallpaper" in kl:
                               r, g, b = lbgr, lbgg, lbgb
-                          elif s > 0.28 and 0.15 < l < 0.85:
-                              nr, ng, nb = colorsys.hls_to_rgb(ah, min(0.52, l), min(1.0, max(asat * 0.85, s)))
+                          elif s > 0.20 and 0.15 < l < 0.85:
+                              nr, ng, nb = colorsys.hls_to_rgb(ah, min(0.46, l), min(1.0, max(asat, s)))
                               r, g, b = int(nr * 255), int(ng * 255), int(nb * 255)
                           lines.append(f"{k}={argb_to_signed(a, r, g, b)}")
                   with open(os.path.join(themes_out, f"{out_prefix}_light.attheme"), "w", encoding="utf-8") as f:
                       f.write("\n".join(lines) + "\n")
 
           amoled_b = os.path.join(assets_dir, "amoled.attheme")
-          night_b = os.path.join(assets_dir, "night.attheme")
           day_b = os.path.join(assets_dir, "day.attheme")
 
           theme_specs = [
-              ("sg_cosmic",  amoled_b, day_b, "#38BDF8", "#070B19", "#0F172A", "#1D4ED8", "#E0F2FE", "#BAE6FD"),
-              ("sg_glitch",  amoled_b, day_b, "#F43F5E", "#050508", "#111118", "#BE123C", "#FFE4E6", "#FECDD3"),
-              ("sg_cyan",    amoled_b, day_b, "#06B6D4", "#040D12", "#0B1D26", "#0E7490", "#CFFAFE", "#A5F3FC"),
-              ("sg_emerald", night_b,  day_b, "#10B981", "#04120D", "#0A221A", "#047857", "#D1FAE5", "#A7F3D0"),
-              ("sg_pixel",   night_b,  day_b, "#22C55E", "#111315", "#1C1F22", "#15803D", "#DCFCE7", "#BBF7D0"),
-              ("sg_pixem",   amoled_b, day_b, "#34D399", "#06110D", "#0D211A", "#059669", "#D1FAE5", "#A7F3D0"),
-              ("sg_sunset",  night_b,  day_b, "#FB923C", "#160B12", "#26131F", "#C2410C", "#FFEDD5", "#FED7AA"),
-              ("sg_bsod",    night_b,  day_b, "#3B82F6", "#0000AA", "#000088", "#1D4ED8", "#DBEAFE", "#BFDBFE"),
-              ("sg_cyber",   amoled_b, day_b, "#EAB308", "#0D071A", "#190E30", "#7E22CE", "#FEF9C3", "#FEF08A"),
-              ("sg_nothing", amoled_b, day_b, "#EF4444", "#000000", "#121212", "#B91C1C", "#F4F4F5", "#E4E4E7"),
-              ("sg_light",   night_b,  day_b, "#52525B", "#18181B", "#27272A", "#3F3F46", "#F4F4F5", "#E4E4E7"),
+              ("sg_cosmic",  amoled_b, day_b, "#0284C7", "#000000", "#080D16", "#0C4A6E", "#F1F5F9", "#DBEAFE"),
+              ("sg_glitch",  amoled_b, day_b, "#E11D48", "#000000", "#0E070B", "#881337", "#F8F5F6", "#FFE4E6"),
+              ("sg_cyan",    amoled_b, day_b, "#0891B2", "#000000", "#061014", "#155E75", "#F0F7F9", "#CFFAFE"),
+              ("sg_emerald", amoled_b, day_b, "#059669", "#000000", "#06110D", "#064E3B", "#F2F7F5", "#D1FAE5"),
+              ("sg_pixel",   amoled_b, day_b, "#16A34A", "#000000", "#0A0F0B", "#14532D", "#F3F6F4", "#DCFCE7"),
+              ("sg_pixem",   amoled_b, day_b, "#10B981", "#000000", "#06120E", "#065F46", "#F1F7F4", "#D1FAE5"),
+              ("sg_sunset",  amoled_b, day_b, "#EA580C", "#000000", "#120906", "#7C2D12", "#F9F5F2", "#FFEDD5"),
+              ("sg_bsod",    amoled_b, day_b, "#2563EB", "#00007A", "#000055", "#1E3A8A", "#F1F5FB", "#DBEAFE"),
+              ("sg_cyber",   amoled_b, day_b, "#9333EA", "#000000", "#0D0716", "#581C87", "#F6F3FA", "#EDE9FE"),
+              ("sg_nothing", amoled_b, day_b, "#DC2626", "#000000", "#0C0C0C", "#1C1C1E", "#F4F4F5", "#E4E4E7"),
+              ("sg_light",   amoled_b, day_b, "#3F3F46", "#000000", "#0F0F11", "#27272A", "#F4F4F5", "#E4E4E7"),
           ]
 
-          for out_prefix, base_dark, base_light, acc, dbg, dcard, dbub, lbg, lbub in theme_specs:
-              build_theme_pair(base_dark, base_light, out_prefix, acc, dbg, dcard, dbub, lbg, lbub)
-              
-          # 3. Обновляем TypefaceHelper.java: поддержка шрифтов тем + железный заголовок "SpaceGram"
+          for spec in theme_specs:
+              build_theme_pair(*spec)
+
+          # 3. Мгновенные шрифты без перезапуска (TypefaceHelper + AndroidUtilities) + заголовок SpaceGram
           def patch_typeface(s):
               helper_code = '''
               private static int cachedFontMode = -1;
@@ -221,9 +222,18 @@ jobs:
                   cachedFontMode = -1;
                   customReg = null;
                   customBold = null;
+                  try {
+                      for (java.lang.reflect.Field f : org.telegram.messenger.AndroidUtilities.class.getDeclaredFields()) {
+                          if (java.util.Map.class.isAssignableFrom(f.getType())) {
+                              f.setAccessible(true);
+                              Object m = f.get(null);
+                              if (m instanceof java.util.Map) ((java.util.Map<?, ?>) m).clear();
+                          }
+                      }
+                  } catch (Throwable ignored) {}
               }
 
-              private static Typeface getSelectedCustomFont(int weight, boolean italic) {
+              public static Typeface getSelectedCustomFont(int weight, boolean italic) {
                   if (ApplicationLoader.applicationContext == null) return null;
                   int mode = ApplicationLoader.applicationContext.getSharedPreferences("spacegram_prefs", 0).getInt("font_style", 0);
                   if (mode == 0) return null;
@@ -235,13 +245,12 @@ jobs:
                                    : (mode == 2 ? "fonts/sg_pixel.ttf"
                                    : (mode == 3 ? "fonts/sg_mono.ttf" : "fonts/sg_dot.ttf"));
                       try {
-                          File f = new File(ApplicationLoader.getFilesDirFixed(), "sg_font_v1_" + mode + ".ttf");
+                          File f = new File(ApplicationLoader.getFilesDirFixed(), "sg_font_v2_" + mode + ".ttf");
                           if (!f.exists() || f.length() < 1000) {
                               try (java.io.InputStream is = ApplicationLoader.applicationContext.getAssets().open(asset);
                                    java.io.FileOutputStream fos = new java.io.FileOutputStream(f)) {
-                                  byte[] buf = new byte[4096];
-                                  int n;
-                                  while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+                                  int b;
+                                  while ((b = is.read()) != -1) fos.write(b);
                               }
                           }
                           if (f.exists() && f.length() > 1000) {
@@ -275,8 +284,19 @@ jobs:
               return s
 
           patch_file("TMessagesProj/src/main/java/tw/nekomimi/nekogram/helpers/TypefaceHelper.java", patch_typeface)
-                 
-          # 4. Создаём экран "Темы" (SpaceGramThemesActivity.java) с карточками в стиле Плагинов и BottomSheet выбора
+
+          def patch_android_utils(s):
+              target = 'public static Typeface getTypeface(String assetPath) {'
+              hook = '''public static Typeface getTypeface(String assetPath) {
+                  boolean sgBold = assetPath != null && (assetPath.contains("medium") || assetPath.contains("bold"));
+                  boolean sgIt = assetPath != null && assetPath.contains("italic");
+                  android.graphics.Typeface sgCustom = tw.nekomimi.nekogram.helpers.TypefaceHelper.getSelectedCustomFont(sgBold ? 700 : 400, sgIt);
+                  if (sgCustom != null) return sgCustom;'''
+              return s.replace(target, hook, 1)
+
+          patch_file("TMessagesProj/src/main/java/org/telegram/messenger/AndroidUtilities.java", patch_android_utils)
+
+          # 4. Экран "Темы" (полное описание + кнопка снизу справа + переключатель Тёмная/Светлая)
           themes_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/SpaceGramThemesActivity.java"
           with open(themes_activity_path, "w", encoding="utf-8") as f:
               f.write('''package app.exteraless.settings;
@@ -284,9 +304,9 @@ jobs:
           import static org.telegram.messenger.AndroidUtilities.dp;
 
           import android.content.Context;
+          import android.content.SharedPreferences;
           import android.graphics.Color;
           import android.graphics.Outline;
-          import android.text.TextUtils;
           import android.util.TypedValue;
           import android.view.Gravity;
           import android.view.View;
@@ -303,10 +323,12 @@ jobs:
 
           import org.telegram.messenger.AndroidUtilities;
           import org.telegram.messenger.ApplicationLoader;
+          import org.telegram.messenger.NotificationCenter;
           import org.telegram.messenger.R;
           import org.telegram.ui.ActionBar.BottomSheet;
           import org.telegram.ui.ActionBar.Theme;
           import org.telegram.ui.Cells.CheckBoxCell;
+          import org.telegram.ui.Cells.TextSettingsCell;
           import org.telegram.ui.Components.LayoutHelper;
           import org.telegram.ui.LauncherIconController;
 
@@ -320,6 +342,7 @@ jobs:
           import java.util.ArrayList;
           import java.util.List;
           import java.util.Locale;
+          import java.util.concurrent.atomic.AtomicBoolean;
 
           import tw.nekomimi.nekogram.helpers.TypefaceHelper;
           import tw.nekomimi.nekogram.settings.BaseNekoSettingsActivity;
@@ -402,11 +425,18 @@ jobs:
                   container.setOrientation(LinearLayout.VERTICAL);
                   container.setPadding(0, dp(4), 0, dp(12));
 
-                  boolean isDarkNow = Theme.getCurrentTheme() != null && Theme.getCurrentTheme().isDark();
-                  String modeLabel = isDarkNow ? "Тёмная палитра" : "Светлая палитра";
+                  final AtomicBoolean useDark = new AtomicBoolean(Theme.isCurrentThemeNight());
+
+                  TextSettingsCell modeCell = new TextSettingsCell(ctx);
+                  modeCell.setTextAndValue("Версия палитры", useDark.get() ? "Тёмная" : "Светлая", true);
+                  modeCell.setOnClickListener(v -> {
+                      useDark.set(!useDark.get());
+                      modeCell.setTextAndValue("Версия палитры", useDark.get() ? "Тёмная" : "Светлая", true);
+                  });
+                  container.addView(modeCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
 
                   CheckBoxCell cbColors = new CheckBoxCell(ctx, 1);
-                  cbColors.setText("Цвета интерфейса", modeLabel, true, true);
+                  cbColors.setText("Цвета интерфейса", "Весь клиент и чаты", true, true);
                   cbColors.setOnClickListener(v -> cbColors.setChecked(!cbColors.isChecked(), true));
                   container.addView(cbColors, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50));
 
@@ -443,58 +473,67 @@ jobs:
 
                   applyBtn.setOnClickListener(v -> {
                       sheet.dismiss();
-                      executeApply(preset, cbColors.isChecked(), cbWallpaper.isChecked(), cbFont.isChecked(), cbIcon.isChecked());
+                      executeApply(preset, useDark.get(), cbColors.isChecked(), cbWallpaper.isChecked(), cbFont.isChecked(), cbIcon.isChecked());
                   });
 
                   sheet.show();
               }
 
-              private void executeApply(ThemePreset preset, boolean applyColors, boolean applyWallpaper, boolean applyFont, boolean applyIcon) {
-                  boolean isDarkNow = Theme.getCurrentTheme() != null && Theme.getCurrentTheme().isDark();
-                  String suffix = isDarkNow ? "_dark.attheme" : "_light.attheme";
+              private static void applyThemeAsset(String presetId, String title, boolean darkMode, boolean applyColors, boolean applyWallpaper) {
+                  String suffix = darkMode ? "_dark.attheme" : "_light.attheme";
+                  try {
+                      File outFile = new File(ApplicationLoader.getFilesDirFixed(), presetId + suffix);
+                      List<String> filtered = new ArrayList<>();
+                      try (InputStream is = ApplicationLoader.applicationContext.getAssets().open("sg_themes/" + presetId + suffix);
+                           BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                          String line;
+                          while ((line = br.readLine()) != null) {
+                              boolean isWall = line.toLowerCase(Locale.US).startsWith("chat_wallpaper");
+                              if (applyColors && applyWallpaper) {
+                                  filtered.add(line);
+                              } else if (applyColors && !isWall) {
+                                  filtered.add(line);
+                              } else if (applyWallpaper && isWall) {
+                                  filtered.add(line);
+                              }
+                          }
+                      }
+                      try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                          for (String l : filtered) {
+                              fos.write(l.getBytes(StandardCharsets.UTF_8));
+                              fos.write(10);
+                          }
+                      }
+                      for (Method m : Theme.class.getDeclaredMethods()) {
+                          if ("applyThemeFile".equals(m.getName()) && m.getParameterCount() == 4) {
+                              m.setAccessible(true);
+                              m.invoke(null, outFile, title + (darkMode ? " Dark" : " Light"), null, false);
+                              break;
+                          }
+                      }
+                  } catch (Throwable ignored) {}
+              }
+
+              private void executeApply(ThemePreset preset, boolean darkMode, boolean applyColors, boolean applyWallpaper, boolean applyFont, boolean applyIcon) {
+                  SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences("spacegram_prefs", 0);
 
                   if (applyColors || applyWallpaper) {
-                      try {
-                          File outFile = new File(ApplicationLoader.getFilesDirFixed(), preset.id + suffix);
-                          List<String> filtered = new ArrayList<>();
-                          try (InputStream is = ApplicationLoader.applicationContext.getAssets().open("sg_themes/" + preset.id + suffix);
-                               BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                              String line;
-                              while ((line = br.readLine()) != null) {
-                                  boolean isWall = line.toLowerCase(Locale.US).startsWith("chat_wallpaper");
-                                  if (applyColors && applyWallpaper) {
-                                      filtered.add(line);
-                                  } else if (applyColors && !isWall) {
-                                      filtered.add(line);
-                                  } else if (applyWallpaper && isWall) {
-                                      filtered.add(line);
-                                  }
-                              }
-                          }
-                          try (FileOutputStream fos = new FileOutputStream(outFile)) {
-                              for (String l : filtered) {
-                                  fos.write(l.getBytes(StandardCharsets.UTF_8));
-                                  fos.write(10);
-                              }
-                          }
-                          int i0 = 0, i1 = 1, i3 = 3;
-                          for (Method m : Theme.class.getDeclaredMethods()) {
-                              if ("applyThemeFile".equals(m.getName())) {
-                                  Class<?>[] p = m.getParameterTypes();
-                                  if (p.length == 4 && p[i0] == File.class && p[i1] == String.class && p[i3] == boolean.class) {
-                                      m.setAccessible(true);
-                                      m.invoke(null, outFile, preset.title, null, false);
-                                      break;
-                                  }
-                              }
-                          }
-                      } catch (Throwable ignored) {}
+                      prefs.edit()
+                           .putString("active_theme_id", preset.id)
+                           .putString("active_theme_title", preset.title)
+                           .putBoolean("active_apply_colors", applyColors)
+                           .putBoolean("active_apply_wallpaper", applyWallpaper)
+                           .apply();
+                      applyThemeAsset(preset.id, preset.title, darkMode, applyColors, applyWallpaper);
                   }
 
                   if (applyFont) {
-                      ApplicationLoader.applicationContext.getSharedPreferences("spacegram_prefs", 0)
-                              .edit().putInt("font_style", preset.fontMode).apply();
+                      prefs.edit().putInt("font_style", preset.fontMode).apply();
                       TypefaceHelper.resetCustomFont();
+                      try {
+                          Theme.createCommonResources(ApplicationLoader.applicationContext);
+                      } catch (Throwable ignored) {}
+                      NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.didSetNewTheme);
                   }
 
                   if (applyIcon) {
@@ -504,10 +543,7 @@ jobs:
                       } catch (Throwable ignored) {}
                   }
 
-                  String msg = applyFont
-                          ? "Тема «" + preset.title + "» применена (перезапустите клиент для смены шрифта)"
-                          : "Тема «" + preset.title + "» применена";
-                  Toast.makeText(getParentActivity(), msg, Toast.LENGTH_SHORT).show();
+                  Toast.makeText(getParentActivity(), "Тема «" + preset.title + "» применена", Toast.LENGTH_SHORT).show();
               }
 
               private static class ThemeCardCell extends FrameLayout {
@@ -522,11 +558,15 @@ jobs:
                       setPadding(dp(12), dp(6), dp(12), dp(6));
 
                       card = new LinearLayout(context);
-                      card.setOrientation(LinearLayout.HORIZONTAL);
-                      card.setGravity(Gravity.CENTER_VERTICAL);
-                      card.setPadding(dp(14), dp(14), dp(14), dp(14));
+                      card.setOrientation(LinearLayout.VERTICAL);
+                      card.setPadding(dp(14), dp(14), dp(14), dp(12));
                       card.setBackground(Theme.createRoundRectDrawable(dp(16), Theme.getColor(Theme.key_windowBackgroundWhite)));
                       addView(card, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+                      LinearLayout topRow = new LinearLayout(context);
+                      topRow.setOrientation(LinearLayout.HORIZONTAL);
+                      topRow.setGravity(Gravity.TOP);
+                      card.addView(topRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
                       iconView = new ImageView(context);
                       iconView.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -537,26 +577,22 @@ jobs:
                               outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(13));
                           }
                       });
-                      card.addView(iconView, LayoutHelper.createLinear(50, 50, 0, 0, 14, 0));
+                      topRow.addView(iconView, LayoutHelper.createLinear(50, 50, 0, 2, 14, 0));
 
                       LinearLayout textCol = new LinearLayout(context);
                       textCol.setOrientation(LinearLayout.VERTICAL);
-                      card.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f, 0, 0, 10, 0));
+                      topRow.addView(textCol, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
 
                       titleView = new TextView(context);
                       titleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
                       titleView.setTypeface(AndroidUtilities.bold());
                       titleView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
-                      titleView.setSingleLine(true);
-                      titleView.setEllipsize(TextUtils.TruncateAt.END);
                       textCol.addView(titleView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
                       descView = new TextView(context);
-                      descView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
+                      descView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13.5f);
                       descView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-                      descView.setMaxLines(2);
-                      descView.setEllipsize(TextUtils.TruncateAt.END);
-                      textCol.addView(descView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 3, 0, 0));
+                      textCol.addView(descView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 0));
 
                       buttonView = new TextView(context);
                       buttonView.setText("Применить");
@@ -564,13 +600,13 @@ jobs:
                       buttonView.setTypeface(AndroidUtilities.bold());
                       buttonView.setTextColor(Color.WHITE);
                       buttonView.setGravity(Gravity.CENTER);
-                      buttonView.setPadding(dp(14), dp(8), dp(14), dp(8));
+                      buttonView.setPadding(dp(16), dp(8), dp(16), dp(8));
                       buttonView.setBackground(Theme.createSimpleSelectorRoundRectDrawable(
                               dp(18),
                               Theme.getColor(Theme.key_featuredStickers_addButton),
                               Theme.getColor(Theme.key_featuredStickers_addButtonPressed)
                       ));
-                      card.addView(buttonView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+                      card.addView(buttonView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.END, 0, 10, 0, 0));
                   }
 
                   public void bind(ThemePreset preset, OnClickListener onApply) {
@@ -590,7 +626,7 @@ jobs:
                   @Override
                   public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
                       if (viewType == 100) {
-                          return new RecyclerView.ViewHolder(new ThemeCardCell(mContext)) {};
+                          return new RecyclerView.Holder(new ThemeCardCell(mContext)) {};
                       }
                       return super.onCreateViewHolder(parent, viewType);
                   }
@@ -622,13 +658,15 @@ jobs:
               }
           }
           ''')
-          
-          # 5. Создаём экран "О форке" (ForkInfoActivity.java) со скруглёнными карточками и правильным слешем в URL
+
+          # 5. Экран "О форке" с системным открытием ссылок
           fork_activity_path = "TMessagesProj/src/main/java/app/exteraless/settings/ForkInfoActivity.java"
           with open(fork_activity_path, "w", encoding="utf-8") as f:
               f.write('''package app.exteraless.settings;
 
           import android.content.Context;
+          import android.content.Intent;
+          import android.net.Uri;
           import android.view.View;
           import androidx.recyclerview.widget.RecyclerView;
           import org.telegram.messenger.R;
@@ -677,16 +715,26 @@ jobs:
                   return new ListAdapter(context);
               }
 
+              private void openExternalLink(String url) {
+                  try {
+                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                      getParentActivity().startActivity(intent);
+                  } catch (Throwable e) {
+                      Browser.openUrl(getParentActivity(), url);
+                  }
+              }
+
               @Override
               protected void onItemClick(View view, int position, float x, float y) {
                   if (position == exteralessRow) {
-                      Browser.openUrl(getParentActivity(), "https://github.com" + "exteraless" + "/" + "exteraless");
+                      openExternalLink("https://github.com");
                   } else if (position == geminiRow) {
-                      Browser.openUrl(getParentActivity(), "https://google.com");
+                      openExternalLink("https://google.com");
                   } else if (position == claudeRow) {
-                      Browser.openUrl(getParentActivity(), "https://claude.ai");
+                      openExternalLink("https://claude.ai");
                   } else if (position == chatgptRow) {
-                      Browser.openUrl(getParentActivity(), "https://chatgpt.com");
+                      openExternalLink("https://chatgpt.com");
                   }
               }
 
@@ -743,7 +791,7 @@ jobs:
           }
           ''')
 
-          # 6. Обновляем OpenExteraSettingsActivity.java: добавляем "Темы" между "Внешний вид" и "Чаты" + "О форке"
+          # 6. Настройки SpaceGram ("Темы" + "О форке")
           def patch_settings(s):
               s = s.replace('getMessagesController().openByUserName("exteraless", this, 1);',
                             'getMessagesController().openByUserName("SpaceGram_Client", this, 1);')
@@ -884,4 +932,4 @@ jobs:
           cp "$APK_FILE" "SpaceGram-arm64-v8a-$SHORT.apk"
           gh release create "$TAG" "SpaceGram-arm64-v8a-$SHORT.apk" \
             --target "$GITHUB_SHA" --latest \
-            --title "SpaceGram ($SHORT)" --notes "SpaceGram v0.3 update $SHORT"
+            --title "SpaceGram ($SHORT)" --notes "SpaceGram v0.3 update $SHORT"me
